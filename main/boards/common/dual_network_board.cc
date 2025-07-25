@@ -7,12 +7,20 @@
 
 static const char *TAG = "DualNetworkBoard";
 
-DualNetworkBoard::DualNetworkBoard(gpio_num_t ml307_tx_pin, gpio_num_t ml307_rx_pin, size_t ml307_rx_buffer_size, int32_t default_net_type) 
-    : Board(), 
-      ml307_tx_pin_(ml307_tx_pin), 
-      ml307_rx_pin_(ml307_rx_pin), 
-      ml307_rx_buffer_size_(ml307_rx_buffer_size) {
-    
+
+
+DualNetworkBoard::DualNetworkBoard(
+        gpio_num_t ml307_tx_pin, gpio_num_t ml307_rx_pin, gpio_num_t ml307_rst_pin, gpio_num_t ml307_pwr_pin,
+        gpio_num_t ml307_dtr_pin, gpio_num_t ml307_wakeup_pin, size_t ml307_rx_buffer_size, int32_t default_net_type)
+        : Board(),
+        ml307_tx_pin_(ml307_tx_pin),
+        ml307_rx_pin_(ml307_rx_pin),
+        ml307_rst_pin_(ml307_rst_pin),
+        ml307_pwr_pin_(ml307_pwr_pin),
+        ml307_dtr_pin_(ml307_dtr_pin),
+        ml307_wakeup_pin_(ml307_wakeup_pin),
+        ml307_rx_buffer_size_(ml307_rx_buffer_size) {
+ 
     // 从Settings加载网络类型
     network_type_ = LoadNetworkTypeFromSettings(default_net_type);
     
@@ -35,7 +43,8 @@ void DualNetworkBoard::SaveNetworkTypeToSettings(NetworkType type) {
 void DualNetworkBoard::InitializeCurrentBoard() {
     if (network_type_ == NetworkType::ML307) {
         ESP_LOGI(TAG, "Initialize ML307 board");
-        current_board_ = std::make_unique<Ml307Board>(ml307_tx_pin_, ml307_rx_pin_, ml307_rx_buffer_size_);
+        current_board_ = std::make_unique<Ml307Board>(ml307_tx_pin_, ml307_rx_pin_, ml307_rst_pin_, ml307_pwr_pin_, 
+                                                      ml307_dtr_pin_, ml307_wakeup_pin_, ml307_rx_buffer_size_);
     } else {
         ESP_LOGI(TAG, "Initialize WiFi board");
         current_board_ = std::make_unique<WifiBoard>();

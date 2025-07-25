@@ -52,6 +52,8 @@ Display::~Display() {
         lv_obj_del(mute_label_);
         lv_obj_del(battery_label_);
         lv_obj_del(emotion_label_);
+        lv_obj_del(main_btn_chat_);
+        lv_obj_del(main_btn_chat_label_);
     }
     if( low_battery_popup_ != nullptr ) {
         lv_obj_del(low_battery_popup_);
@@ -91,7 +93,6 @@ void Display::ShowNotification(const char* notification, int duration_ms) {
 void Display::UpdateStatusBar(bool update_all) {
     auto& board = Board::GetInstance();
     auto codec = board.GetAudioCodec();
-
     {
         DisplayLockGuard lock(this);
         if (mute_label_ == nullptr) {
@@ -119,14 +120,15 @@ void Display::UpdateStatusBar(bool update_all) {
         } else {
             const char* levels[] = {
                 FONT_AWESOME_BATTERY_EMPTY, // 0-19%
-                FONT_AWESOME_BATTERY_1,    // 20-39%
-                FONT_AWESOME_BATTERY_2,    // 40-59%
-                FONT_AWESOME_BATTERY_3,    // 60-79%
-                FONT_AWESOME_BATTERY_FULL, // 80-99%
-                FONT_AWESOME_BATTERY_FULL, // 100%
+                FONT_AWESOME_BATTERY_1,     // 20-39%
+                FONT_AWESOME_BATTERY_2,     // 40-59%
+                FONT_AWESOME_BATTERY_3,     // 60-79%
+                FONT_AWESOME_BATTERY_FULL,  // 80-99%
+                FONT_AWESOME_BATTERY_FULL,  // 100%
             };
             icon = levels[battery_level / 20];
         }
+        
         DisplayLockGuard lock(this);
         if (battery_label_ != nullptr && battery_icon_ != icon) {
             battery_icon_ = icon;
@@ -136,6 +138,7 @@ void Display::UpdateStatusBar(bool update_all) {
         if (low_battery_popup_ != nullptr) {
             if (strcmp(icon, FONT_AWESOME_BATTERY_EMPTY) == 0 && discharging) {
                 if (lv_obj_has_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN)) { // 如果低电量提示框隐藏，则显示
+                    lv_obj_add_flag(main_btn_chat_, LV_OBJ_FLAG_HIDDEN);
                     lv_obj_clear_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
                     auto& app = Application::GetInstance();
                     app.PlaySound(Lang::Sounds::P3_LOW_BATTERY);
@@ -144,6 +147,7 @@ void Display::UpdateStatusBar(bool update_all) {
                 // Hide the low battery popup when the battery is not empty
                 if (!lv_obj_has_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN)) { // 如果低电量提示框显示，则隐藏
                     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_clear_flag(main_btn_chat_, LV_OBJ_FLAG_HIDDEN);
                 }
             }
         }
@@ -237,6 +241,7 @@ void Display::SetPreviewImage(const lv_img_dsc_t* image) {
 
 void Display::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
+    
     if (chat_message_label_ == nullptr) {
         return;
     }
@@ -248,3 +253,109 @@ void Display::SetTheme(const std::string& theme_name) {
     Settings settings("display", true);
     settings.SetString("theme", theme_name);
 }
+
+void Display::SetBtnLabel(const char* content) {
+    DisplayLockGuard lock(this);
+    if (main_btn_chat_label_ == nullptr) {
+        return;
+    }
+    lv_label_set_text(main_btn_chat_label_, content);
+}
+
+void Display::SetIconVisable(bool en) {
+    DisplayLockGuard lock(this);
+    if (emotion_label_ == nullptr) {
+        return;
+    }
+
+    if (en) {
+        lv_obj_clear_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void Display::SetNetworkVisable(bool en) {
+    DisplayLockGuard lock(this);
+    if (network_label_ == nullptr) {
+        return;
+    }
+
+    if (en) {
+        lv_obj_clear_flag(network_label_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(network_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void Display::SetBatVisable(bool en) {
+    DisplayLockGuard lock(this);
+    if (battery_label_ == nullptr) {
+        return;
+    }
+
+    if (en) {
+        lv_obj_clear_flag(battery_label_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(battery_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+ 
+void Display::UpdateLiveTime(float vol, int cur, float time_s)
+{
+
+}
+
+
+void Display::SetContentVisable(bool en)
+{
+
+}
+
+void Display::LoadScreenByName(const char* name)
+{
+    DisplayLockGuard lock(this);
+
+    if (strcmp(name, "main") == 0 && scr_main_ != nullptr) {
+        lv_scr_load(scr_main_);
+    } else if (strcmp(name, "startup") == 0 && scr_startup_ != nullptr) {
+        lv_scr_load(scr_startup_);
+    } else if (strcmp(name, "setup") == 0 && scr_setup_ != nullptr) {
+        lv_scr_load(scr_setup_);
+    } else if (strcmp(name, "page1") == 0 && scr_page1_ != nullptr) {
+        lv_scr_load(scr_page1_);
+    } else if (strcmp(name, "page2") == 0 && scr_page2_ != nullptr) {
+        lv_scr_load(scr_page2_);
+    } else if (strcmp(name, "page3") == 0 && scr_page3_ != nullptr) {
+        lv_scr_load(scr_page3_);
+    } else if (strcmp(name, "page4") == 0 && scr_page4_ != nullptr) {
+        lv_scr_load(scr_page4_);
+    } else if (strcmp(name, "page5") == 0 && scr_page5_ != nullptr) {
+        lv_scr_load(scr_page5_);
+    } else if (strcmp(name, "shutdown") == 0 && scr_shutdown_ != nullptr) {
+        lv_scr_load(scr_shutdown_);
+    } else if (strcmp(name, "sleep") == 0 && scr_sleep_ != nullptr) {
+        lv_scr_load(scr_sleep_);
+    } else {
+        ESP_LOGE(TAG, "❌ 无效页面名: %s\n", name);
+    }
+}
+ 
+void Display::InitializeUI(bool show)
+{
+    DisplayLockGuard lock(this);
+
+    if (show) { 
+        lv_scr_load(scr_startup_); 
+    } else {
+        lv_scr_load(scr_main_);
+
+        lv_obj_del(scr_startup_);
+        lv_obj_del(scr_page1_);
+        lv_obj_del(scr_page2_);
+        lv_obj_del(scr_page3_);
+        lv_obj_del(scr_page4_);
+        lv_obj_del(scr_page5_);
+    }
+}
+

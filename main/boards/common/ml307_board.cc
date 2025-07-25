@@ -17,6 +17,12 @@
 static const char *TAG = "Ml307Board";
 
 Ml307Board::Ml307Board(gpio_num_t tx_pin, gpio_num_t rx_pin, size_t rx_buffer_size) : modem_(tx_pin, rx_pin, rx_buffer_size) {
+    
+}
+
+Ml307Board::Ml307Board(gpio_num_t tx_pin, gpio_num_t rx_pin, gpio_num_t rst_pin, gpio_num_t pwr_pin, 
+                       gpio_num_t dtr_pin, gpio_num_t wakeup_pin, size_t rx_buffer_size) : 
+                       modem_(tx_pin, rx_pin, rst_pin, pwr_pin, dtr_pin, wakeup_pin, rx_buffer_size) {
 }
 
 std::string Ml307Board::GetBoardType() {
@@ -65,9 +71,6 @@ void Ml307Board::WaitForNetworkReady() {
 
     // Close all previous connections
     modem_.ResetConnections();
-
-    // Enable sleep mode
-    modem_.SetSleepMode(true, 30);
 }
 
 Http* Ml307Board::CreateHttp() {
@@ -123,6 +126,11 @@ std::string Ml307Board::GetBoardJson() {
 void Ml307Board::SetPowerSaveMode(bool enabled) {
     // TODO: Implement power save mode for ML307
 }
+
+bool Ml307Board::GetPowerSaveMode() {
+    return false;
+}
+
 
 std::string Ml307Board::GetDeviceStatusJson() {
     /*
@@ -206,3 +214,39 @@ std::string Ml307Board::GetDeviceStatusJson() {
     cJSON_Delete(root);
     return json;
 }
+ 
+
+void Ml307Board::Sleep() {
+    // ...
+}
+
+void Ml307Board::WakeUp() {
+    // ...
+}
+
+void Ml307Board::Shutdown() {
+    // ...
+}
+
+bool Ml307Board::PowerOff() {
+    return modem_.PowerOff();
+}
+
+
+void Ml307Board::SetIndicator(uint8_t r, uint8_t g, uint8_t b) {
+    // ...
+}
+
+void Ml307Board::ClearDisplay(uint8_t color) {
+    // ...
+}
+
+void Ml307Board::UpdateDisplay() {
+    // ...
+}
+
+void Ml307Board::SetRefreshCode(uint8_t code) {
+    // ...
+}
+
+ 

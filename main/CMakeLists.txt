@@ -9,6 +9,7 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "led/circular_strip.cc"
             "led/gpio_led.cc"
             "display/display.cc"
+            "display/epd_display.cc"
             "display/lcd_display.cc"
             "display/oled_display.cc"
             "protocols/protocol.cc"
@@ -45,6 +46,8 @@ elseif(CONFIG_BOARD_TYPE_BREAD_COMPACT_ESP32)
     set(BOARD_TYPE "bread-compact-esp32")
 elseif(CONFIG_BOARD_TYPE_BREAD_COMPACT_ESP32_LCD)
     set(BOARD_TYPE "bread-compact-esp32-lcd")
+elseif(CONFIG_BOARD_TYPE_XIAOZHI_CARD)
+    set(BOARD_TYPE "xiaozhi-card")
 elseif(CONFIG_BOARD_TYPE_DF_K10)
     set(BOARD_TYPE "df-k10")
 elseif(CONFIG_BOARD_TYPE_DF_S3_AI_CAM)

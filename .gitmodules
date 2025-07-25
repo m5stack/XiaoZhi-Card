@@ -1,0 +1,21 @@
+[submodule "components/esp_epd_gdey027t91"]
+	path = components/esp_epd_gdey027t91
+	url = https://github.com/hlym123/esp_epd_gdey027t91.git
+[submodule "components/charger_aw32001"]
+	path = components/charger_aw32001
+	url = https://github.com/hlym123/charger_aw32001.git
+[submodule "components/guage_bq27220"]
+	path = components/guage_bq27220
+	url = https://github.com/hlym123/guage_bq27220.git
+[submodule "components/esp-ml307"]
+	path = components/esp-ml307
+	url = https://github.com/hlym123/esp-ml307.git
+[submodule "components/xiaozhi-fonts"]
+	path = components/xiaozhi-fonts
+	url = https://github.com/hlym123/xiaozhi-fonts.git
+[submodule "components/esp_lvgl_port"]
+	path = components/esp_lvgl_port
+	url = https://github.com/hlym123/esp_lvgl_port.git
+[submodule "components/lvgl"]
+	path = components/lvgl
+	url = https://github.com/hlym123/lvgl.git

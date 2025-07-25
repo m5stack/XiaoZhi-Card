@@ -11,10 +11,12 @@ public:
     ~PowerSaveTimer();
 
     void SetEnabled(bool enabled);
+    bool GetState() { return enabled_; }
     void OnEnterSleepMode(std::function<void()> callback);
     void OnExitSleepMode(std::function<void()> callback);
     void OnShutdownRequest(std::function<void()> callback);
     void WakeUp();
+    void ManualSleep();
 
 private:
     void PowerSaveCheck();

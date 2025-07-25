@@ -1,6 +1,7 @@
 #include "application.h"
 #include "board.h"
 #include "display.h"
+#include "epd_display.h"
 #include "system_info.h"
 #include "ml307_ssl_transport.h"
 #include "audio_codec.h"
@@ -11,6 +12,10 @@
 #include "assets/lang_config.h"
 #include "mcp_server.h"
 #include "audio_debugger.h"
+#include "esp_lvgl_port.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+ 
 
 #if CONFIG_USE_AUDIO_PROCESSOR
 #include "afe_audio_processor.h"
@@ -35,6 +40,8 @@
 #define TAG "Application"
 
 
+extern QueueHandle_t upgrade_queue;
+
 static const char* const STATE_STRINGS[] = {
     "unknown",
     "starting",
@@ -52,7 +59,7 @@ static const char* const STATE_STRINGS[] = {
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
-    background_task_ = new BackgroundTask(4096 * 7);
+    background_task_ = new BackgroundTask(4096 * 8);
 
 #if CONFIG_USE_DEVICE_AEC
     aec_mode_ = kAecOnDeviceSide;
@@ -76,17 +83,35 @@ Application::Application() {
     wake_word_ = std::make_unique<NoWakeWord>();
 #endif
 
-    esp_timer_create_args_t clock_timer_args = {
-        .callback = [](void* arg) {
-            Application* app = (Application*)arg;
-            app->OnClockTimer();
+    // esp_timer_create_args_t clock_timer_args = {
+    //     .callback = [](void* arg) {
+    //         Application* app = (Application*)arg;
+    //         app->OnClockTimer();
+    //     },
+    //     .arg = this,
+    //     .dispatch_method = ESP_TIMER_TASK,
+    //     .name = "clock_timer",
+    //     .skip_unhandled_events = true
+    // };
+    // esp_timer_create(&clock_timer_args, &clock_timer_handle_);
+
+    Application* app = this;  
+    xTaskCreate(
+        [](void* arg) {
+            Application* app = static_cast<Application*>(arg);
+            TickType_t last_wake_time = xTaskGetTickCount();
+            const TickType_t interval = pdMS_TO_TICKS(1000);  
+            while (true) {
+                vTaskDelayUntil(&last_wake_time, interval);  
+                app->OnClockTimer();
+            }
         },
-        .arg = this,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "clock_timer",
-        .skip_unhandled_events = true
-    };
-    esp_timer_create(&clock_timer_args, &clock_timer_handle_);
+        "ClockTask",
+        4096,
+        this, 
+        2,
+        nullptr
+    );
 }
 
 Application::~Application() {
@@ -103,15 +128,18 @@ Application::~Application() {
 void Application::CheckNewVersion() {
     const int MAX_RETRY = 10;
     int retry_count = 0;
-    int retry_delay = 10; // 初始重试延迟为10秒
+    int retry_delay = 5; // 初始重试延迟为5秒
 
     while (true) {
         SetDeviceState(kDeviceStateActivating);
         auto display = Board::GetInstance().GetDisplay();
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
-
         if (!ota_.CheckVersion()) {
             retry_count++;
+            if (retry_count < 3) {
+                continue;
+            }
+
             if (retry_count >= MAX_RETRY) {
                 ESP_LOGE(TAG, "Too many retries, exit version check");
                 return;
@@ -134,45 +162,118 @@ void Application::CheckNewVersion() {
         retry_count = 0;
         retry_delay = 10; // 重置重试延迟时间
 
+        /* 有新版本 --> 升级/跳过 */
         if (ota_.HasNewVersion()) {
-            Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "happy", Lang::Sounds::P3_UPGRADE);
+            display->SetStatus("检查到新版本");
+            upgrade_queue = xQueueCreate(5, sizeof(int));
 
-            vTaskDelay(pdMS_TO_TICKS(3000));
-
-            SetDeviceState(kDeviceStateUpgrading);
-            
-            display->SetIcon(FONT_AWESOME_DOWNLOAD);
-            std::string message = std::string(Lang::Strings::NEW_VERSION) + ota_.GetFirmwareVersion();
-            display->SetChatMessage("system", message.c_str());
-
-            auto& board = Board::GetInstance();
-            board.SetPowerSaveMode(false);
-            wake_word_->StopDetection();
-            // 预先关闭音频输出，避免升级过程有音频操作
-            auto codec = board.GetAudioCodec();
-            codec->EnableInput(false);
-            codec->EnableOutput(false);
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                audio_decode_queue_.clear();
+            lvgl_port_lock(0);
+            lv_obj_add_flag(display->content_, LV_OBJ_FLAG_HIDDEN);
+            if (display->main_btn_confirm_upgrade_) {
+                lv_obj_clear_flag(display->main_btn_confirm_upgrade_, LV_OBJ_FLAG_HIDDEN);
             }
-            background_task_->WaitForCompletion();
-            delete background_task_;
-            background_task_ = nullptr;
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            if (display->main_btn_skip_upgrade_) {
+                lv_obj_clear_flag(display->main_btn_skip_upgrade_, LV_OBJ_FLAG_HIDDEN);
+            }
+            lvgl_port_unlock();
 
-            ota_.StartUpgrade([display](int progress, size_t speed) {
-                char buffer[64];
-                snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
-                display->SetChatMessage("system", buffer);
-            });
+            // 阻塞等待用户选择
+            int upgrade = 0;
+            if (!xQueueReceive(upgrade_queue, &upgrade, pdMS_TO_TICKS(20000))) {
+                ESP_LOGW(TAG, "User did not respond to upgrade prompt.");
+                upgrade = 0;  
+            } else {
+                ESP_LOGI(TAG, "Ready to upgrade prompt.");
+            }
+            vQueueDelete(upgrade_queue);
 
-            // If upgrade success, the device will reboot and never reach here
-            display->SetStatus(Lang::Strings::UPGRADE_FAILED);
-            ESP_LOGI(TAG, "Firmware upgrade failed...");
-            vTaskDelay(pdMS_TO_TICKS(3000));
-            Reboot();
-            return;
+            lvgl_port_lock(0);
+            if (lv_obj_is_valid(display->main_btn_confirm_upgrade_)) {
+                lv_obj_delete(display->main_btn_confirm_upgrade_);
+                display->main_btn_confirm_upgrade_ = nullptr;
+            }
+            if (lv_obj_is_valid(display->main_btn_skip_upgrade_)) {
+                lv_obj_delete(display->main_btn_skip_upgrade_);
+                display->main_btn_skip_upgrade_ = nullptr;
+            }
+            lv_obj_clear_flag(display->content_, LV_OBJ_FLAG_HIDDEN);  
+            lvgl_port_unlock();
+            
+            if (upgrade == 1) {  
+                auto edp_display = static_cast<EpdDisplay*>(display);   
+                edp_display->SetScrMainGestureEvent(false);
+
+                auto& board = Board::GetInstance();
+                lvgl_port_lock(0);
+                board.ClearDisplay(0x00);
+                display->LoadScreenByName("main");
+                lv_refr_now(NULL);    
+                board.UpdateDisplay();
+                lvgl_port_unlock();
+
+                Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "happy", Lang::Sounds::P3_UPGRADE);
+                vTaskDelay(pdMS_TO_TICKS(3000));
+
+                SetDeviceState(kDeviceStateUpgrading);
+                
+                display->SetIcon(FONT_AWESOME_DOWNLOAD);
+                std::string message = std::string(Lang::Strings::NEW_VERSION) + ota_.GetFirmwareVersion();
+                display->SetChatMessage("system", message.c_str());
+
+                board.SetPowerSaveMode(false);
+                wake_word_->StopDetection();
+                // 预先关闭音频输出，避免升级过程有音频操作
+                auto codec = board.GetAudioCodec();
+                codec->EnableInput(false);
+                codec->EnableOutput(false);
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    audio_decode_queue_.clear();
+                }
+                background_task_->WaitForCompletion();
+                delete background_task_;
+                background_task_ = nullptr;
+                vTaskDelay(pdMS_TO_TICKS(1000));
+
+                /* 执行 OTA，带超时自动重启 */
+                TimerHandle_t ota_timeout_timer = xTimerCreate(
+                    "ota_timeout",
+                    pdMS_TO_TICKS(10*1000), 
+                    pdFALSE,
+                    display, 
+                    [](TimerHandle_t xTimer) {
+                        auto display = static_cast<Display*>(pvTimerGetTimerID(xTimer));
+                        char buffer[64];
+                        snprintf(buffer, sizeof(buffer), "OTA失败，即将重启！");
+                        display->SetChatMessage("system", buffer);
+                        vTaskDelay(pdMS_TO_TICKS(2000));
+                        esp_restart();
+                    }
+                );
+                xTimerStart(ota_timeout_timer, 0);
+
+                ota_.StartUpgrade([display, ota_timeout_timer](int progress, size_t speed) {
+                    if (ota_timeout_timer != nullptr) {
+                        xTimerReset(ota_timeout_timer, 0);
+                    }
+                    char buffer[64] = {0};
+                    snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024 / 3); // TODO: 
+                    display->SetChatMessage("system", buffer);
+                });
+
+                // ota_.StartUpgrade([display](int progress, size_t speed) {
+                //     char buffer[64];
+                //     snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
+                //     display->SetChatMessage("system", buffer);
+                // });
+
+                // If upgrade success, the device will reboot and never reach here
+                display->SetStatus(Lang::Strings::UPGRADE_FAILED);
+                ESP_LOGI(TAG, "Firmware upgrade failed...");
+                vTaskDelay(pdMS_TO_TICKS(3000));
+                Reboot();
+                return;
+            } 
         }
 
         // No new version, mark the current version as valid
@@ -307,6 +408,9 @@ void Application::ExitAudioTestingMode() {
 }
 
 void Application::ToggleChatState() {
+    // TODO:  
+    aborted_ = false; 
+
     if (device_state_ == kDeviceStateActivating) {
         SetDeviceState(kDeviceStateIdle);
         return;
@@ -337,6 +441,7 @@ void Application::ToggleChatState() {
     } else if (device_state_ == kDeviceStateSpeaking) {
         Schedule([this]() {
             AbortSpeaking(kAbortReasonNone);
+            FullRefresh();
         });
     } else if (device_state_ == kDeviceStateListening) {
         Schedule([this]() {
@@ -367,7 +472,6 @@ void Application::StartListening() {
                     return;
                 }
             }
-
             SetListeningMode(kListeningModeManualStop);
         });
     } else if (device_state_ == kDeviceStateSpeaking) {
@@ -430,6 +534,12 @@ void Application::Start() {
     }
     codec->Start();
 
+    // 设置默认音量，播放启动音 
+    int volume = board.LoadVolumeFormNvs();
+    codec->SetOutputVolume(volume);
+    ResetDecoder();
+    PlaySound(Lang::Sounds::P3_STARTUP);
+
 #if CONFIG_USE_AUDIO_PROCESSOR
     xTaskCreatePinnedToCore([](void* arg) {
         Application* app = (Application*)arg;
@@ -445,16 +555,20 @@ void Application::Start() {
 #endif
 
     /* Start the clock timer to update the status bar */
-    esp_timer_start_periodic(clock_timer_handle_, 1000000);
+    esp_timer_start_periodic(clock_timer_handle_, 1000000); // 1秒
+
+    while (lv_scr_act() != display->scr_main_) {
+        vTaskDelay(pdMS_TO_TICKS(50)); 
+    }
 
     /* Wait for the network to be ready */
     board.StartNetwork();
 
-    // Update the status bar immediately to show the network state
-    display->UpdateStatusBar(true);
-
     // Check for new firmware version or get the MQTT broker address
     CheckNewVersion();
+
+    // Update the status bar immediately to show the network state
+    display->UpdateStatusBar(true);
 
     // Initialize the protocol
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
@@ -707,13 +821,20 @@ void Application::Start() {
         display->ShowNotification(message.c_str());
         display->SetChatMessage("system", "");
         // Play the success sound to indicate the device is ready
-        ResetDecoder();
-        PlaySound(Lang::Sounds::P3_SUCCESS);
+        // ResetDecoder();
+        // PlaySound(Lang::Sounds::P3_WELCOME);
+        Schedule([] {
+            auto& app = Application::GetInstance();
+            app.ResetDecoder();
+            app.PlaySound(Lang::Sounds::P3_WELCOME);
+        });
     }
+
+    FullRefresh();
 
     // Print heap stats
     SystemInfo::PrintHeapStats();
-    
+
     // Enter the main event loop
     MainEventLoop();
 }
@@ -950,7 +1071,7 @@ bool Application::ReadAudio(std::vector<int16_t>& data, int sample_rate, int sam
 
 void Application::AbortSpeaking(AbortReason reason) {
     ESP_LOGI(TAG, "Abort speaking");
-    aborted_ = true;
+   // aborted_ = true; //
     protocol_->SendAbortSpeaking(reason);
 }
 
@@ -960,6 +1081,13 @@ void Application::SetListeningMode(ListeningMode mode) {
 }
 
 void Application::SetDeviceState(DeviceState state) {
+    static int cnt;
+    static int64_t listen_start_time = 0; // 单次监听开始时间
+    static int64_t total_listen_time = 0; // 累计 Listening 时长（单位：us）
+
+    printf("\ndevice state: %d\n", device_state_);
+
+    device_last_state_ = device_state_;
     if (device_state_ == state) {
         return;
     }
@@ -978,25 +1106,58 @@ void Application::SetDeviceState(DeviceState state) {
     switch (state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
+            audio_processor_->Stop();
             display->SetStatus(Lang::Strings::STANDBY);
             display->SetEmotion("neutral");
-            audio_processor_->Stop();
+ 
+            lvgl_port_lock(50);
+            lv_obj_align(display->main_btn_chat_, LV_ALIGN_TOP_MID, 0, 215);
+            lv_label_set_text(display->main_btn_chat_label_, "对话");
+            lv_obj_clear_flag(display->main_btn_chat_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(display->main_btn_pause_chat_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(display->content_, LV_OBJ_FLAG_HIDDEN);
+            lvgl_port_unlock();
+
+            // 如果上一个状态是 Listening，更新累计时长
+            if (previous_state == kDeviceStateListening && listen_start_time != 0) {
+                int64_t duration = esp_timer_get_time() - listen_start_time;
+                total_listen_time += duration;
+                listen_start_time = 0;
+            }
+            // 超过 20 秒就全刷
+            if (cnt++ != 0 && total_listen_time > 20 * 1000000) {
+                FullRefresh();
+                total_listen_time = 0;  // 重置累计时间
+            }
             wake_word_->StartDetection();
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
+            display->SetBtnLabel("");
             timestamp_queue_.clear();
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+
+            lvgl_port_lock(0);
+            lv_obj_align(display->main_btn_chat_, LV_ALIGN_TOP_MID, 0, 215);
+            lv_label_set_text(display->main_btn_chat_label_, "退出");
+            lv_obj_clear_flag(display->main_btn_chat_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(display->main_btn_pause_chat_, LV_OBJ_FLAG_HIDDEN);
+            lvgl_port_unlock();
+
+            // 仅首次进入 Listening 时记录开始时间
+            if (previous_state != kDeviceStateListening && listen_start_time == 0) {
+                listen_start_time = esp_timer_get_time();
+            }
+            board.SetIndicator(0, 50, 0);
             // Update the IoT states before sending the start listening command
 #if CONFIG_IOT_PROTOCOL_XIAOZHI
             UpdateIotStates();
 #endif
-
             // Make sure the audio processor is running
             if (!audio_processor_->IsRunning()) {
                 // Send the start listening command
@@ -1014,6 +1175,12 @@ void Application::SetDeviceState(DeviceState state) {
             break;
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
+     
+            lvgl_port_lock(50);
+            lv_label_set_text(display->main_btn_pause_chat_label_, "暂停");
+            lv_obj_clear_flag(display->main_btn_pause_chat_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(display->main_btn_chat_, LV_OBJ_FLAG_HIDDEN);
+            lvgl_port_unlock();
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_processor_->Stop();
@@ -1026,6 +1193,16 @@ void Application::SetDeviceState(DeviceState state) {
             }
             ResetDecoder();
             break;
+        case kDeviceStateSetting: 
+            audio_processor_->Stop();
+            wake_word_->StopDetection();
+            break;
+        case kDeviceStateSleep: 
+            printf("\n");
+            ResetDecoder();
+            audio_processor_->Stop();
+            wake_word_->StopDetection();
+        break;
         default:
             // Do nothing
             break;
@@ -1094,14 +1271,15 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
 }
 
 bool Application::CanEnterSleepMode() {
-    if (device_state_ != kDeviceStateIdle) {
+
+    if (device_state_ == kDeviceStateListening || device_state_ == kDeviceStateSpeaking) {
         return false;
     }
 
     if (protocol_ && protocol_->IsAudioChannelOpened()) {
         return false;
     }
-
+ 
     // Now it is safe to enter sleep mode
     return true;
 }
@@ -1140,3 +1318,99 @@ void Application::SetAecMode(AecMode mode) {
         }
     });
 }
+
+
+// Add for XiaoZhi Card
+
+static void sleep_task(void *param) {
+    //auto *args = static_cast<SoundPlayParams *>(param);
+
+    auto& board = Board::GetInstance();
+    auto display = board.GetDisplay();
+    auto codec = board.GetAudioCodec();
+    codec->EnableInput(false);
+    codec->EnableOutput(false);
+    // {
+    //     std::lock_guard<std::mutex> lock(mutex_);
+    //     audio_decode_queue_.clear();
+    // }
+    lvgl_port_lock(0); 
+    display->lv_scr_last_ = lv_screen_active();
+    display->LoadScreenByName("sleep");
+    board.UpdateDisplay();
+    lv_refr_now(NULL);  
+    lvgl_port_unlock();
+    vTaskDelay(pdMS_TO_TICKS(300));
+    board.Sleep();
+ 
+    vTaskDelete(nullptr);
+}
+
+void Application::EnterSleepMode(uint8_t mode) {
+    ESP_LOGI(TAG, "app: EnterSleepMode");
+
+    if (device_state_  != kDeviceStateIdle) {
+        printf("device_state_  != kDeviceStateIdle\n");
+
+        wake_word_->StopDetection();
+
+        xTaskCreate(sleep_task, "sleep_task", 4096, nullptr, 3, nullptr);
+ 
+    } else {
+        Schedule([this]() {
+            auto& board = Board::GetInstance();
+            auto display = board.GetDisplay();
+            wake_word_->StopDetection();
+            auto codec = board.GetAudioCodec();
+            codec->EnableInput(false);
+            codec->EnableOutput(false);
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                audio_decode_queue_.clear();
+            }
+            display->LoadScreenByName("sleep");
+            vTaskDelay(pdMS_TO_TICKS(300));
+            board.Sleep();
+        });
+    }
+}
+
+void Application::ExitSleepMode() {
+    ESP_LOGI(TAG, "app: ExitSleepMode");
+ 
+}
+
+void Application::Shutdown() {
+    ESP_LOGI(TAG, "app: Shutdown");
+ 
+    ResetDecoder();
+    PlaySound(Lang::Sounds::P3_C2);
+
+    auto& board = Board::GetInstance();
+    board.Shutdown();  
+}
+
+void Application::FullRefresh()
+{
+    auto& board = Board::GetInstance();
+    auto display = board.GetDisplay();
+    
+    lvgl_port_lock(0);
+    board.UpdateDisplay();
+    lv_obj_invalidate(lv_screen_active());   
+    for (int i = 0; i < 5; i++) {
+        lv_refr_now(NULL);
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    lvgl_port_unlock();
+}
+
+void Application::PlayClickSound() {
+    Schedule([] {
+        auto& app = Application::GetInstance();
+        app.ResetDecoder();
+        app.PlaySound(Lang::Sounds::P3_C2);
+    });
+}
+
+ 

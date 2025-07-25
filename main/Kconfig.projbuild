@@ -46,6 +46,8 @@ choice BOARD_TYPE
     config BOARD_TYPE_BREAD_COMPACT_ESP32_LCD
         bool "面包板（WiFi+ LCD） ESP32 DevKit"
         depends on IDF_TARGET_ESP32
+    config BOARD_TYPE_XIAOZHI_CARD
+        bool "XiaoZhi Card"
     config BOARD_TYPE_XMINI_C3
         bool "虾哥 Mini C3"
         depends on IDF_TARGET_ESP32C3

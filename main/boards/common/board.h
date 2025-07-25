@@ -11,6 +11,14 @@
 #include "backlight.h"
 #include "camera.h"
 
+//enum NetworkType
+enum class NetworkType {
+    WIFI,
+    ML307,
+    UNKNOWN
+};
+
+
 void* create_board();
 class AudioCodec;
 class Display;
@@ -50,8 +58,23 @@ public:
     virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging);
     virtual std::string GetJson();
     virtual void SetPowerSaveMode(bool enabled) = 0;
+    virtual bool GetPowerSaveMode() = 0;
     virtual std::string GetBoardJson() = 0;
     virtual std::string GetDeviceStatusJson() = 0;
+
+    // Add for XiaoZhi Card
+    virtual void Sleep(void) = 0;
+    virtual void WakeUp(void) = 0;
+    virtual void Shutdown(void) = 0;
+    virtual void SetIndicator(uint8_t r, uint8_t g, uint8_t b) = 0;
+    virtual void ClearDisplay(uint8_t color) = 0;
+    virtual void UpdateDisplay() = 0;
+    virtual void SetRefreshCode(uint8_t code) = 0;
+    virtual NetworkType GetNetworkType() const {
+        return NetworkType::UNKNOWN;  
+    }
+    virtual int LoadVolumeFormNvs() { return 50; }
+    virtual void SaveVoluemToNvs(int volume) { }
 };
 
 #define DECLARE_BOARD(BOARD_CLASS_NAME) \

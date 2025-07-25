@@ -45,7 +45,9 @@ enum DeviceState {
     kDeviceStateUpgrading,
     kDeviceStateActivating,
     kDeviceStateAudioTesting,
-    kDeviceStateFatalError
+    kDeviceStateFatalError,
+    kDeviceStateSetting,
+    kDeviceStateSleep,
 };
 
 #define OPUS_FRAME_DURATION_MS 60
@@ -64,6 +66,7 @@ public:
 
     void Start();
     DeviceState GetDeviceState() const { return device_state_; }
+    DeviceState GetDeviceLastState() const { return device_last_state_; }
     bool IsVoiceDetected() const { return voice_detected_; }
     void Schedule(std::function<void()> callback);
     void SetDeviceState(DeviceState state);
@@ -82,7 +85,19 @@ public:
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
     BackgroundTask* GetBackgroundTask() const { return background_task_; }
+    // Add for XiaoZhi Card
+    void EnterSleepMode(uint8_t mode);
+    void ExitSleepMode();
+    void Shutdown();
+    void FullRefresh();
+    void PlayClickSound(); 
 
+    TimerHandle_t shutdown_timer_;
+    void InitialAutoShutdown(uint32_t auto_shutdown_time_s); 
+    static void ShutdownTimerCallback(TimerHandle_t xTimer);
+    void ResetShutdownTimer();
+
+    void ResetDecoder();
 private:
     Application();
     ~Application();
@@ -96,6 +111,7 @@ private:
     std::unique_ptr<Protocol> protocol_;
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
+    volatile DeviceState device_last_state_ = kDeviceStateUnknown;
     volatile DeviceState device_state_ = kDeviceStateUnknown;
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
@@ -130,7 +146,6 @@ private:
     void OnAudioInput();
     void OnAudioOutput();
     bool ReadAudio(std::vector<int16_t>& data, int sample_rate, int samples);
-    void ResetDecoder();
     void SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckNewVersion();
     void ShowActivationCode();

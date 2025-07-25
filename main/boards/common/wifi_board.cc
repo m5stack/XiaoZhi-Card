@@ -170,6 +170,10 @@ void WifiBoard::SetPowerSaveMode(bool enabled) {
     wifi_station.SetPowerSaveMode(enabled);
 }
 
+bool WifiBoard::GetPowerSaveMode() {
+    return false;
+}
+
 void WifiBoard::ResetWifiConfiguration() {
     // Set a flag and reboot the device to enter the network configuration mode
     {
@@ -272,3 +276,34 @@ std::string WifiBoard::GetDeviceStatusJson() {
     cJSON_Delete(root);
     return json;
 }
+
+
+void WifiBoard::Sleep() {
+    // ...
+}
+
+void WifiBoard::WakeUp() {
+    // ...
+}
+
+void WifiBoard::Shutdown() {
+    // ...
+}
+
+void WifiBoard::SetIndicator(uint8_t r, uint8_t g, uint8_t b) {
+    // ...
+}
+
+void WifiBoard::ClearDisplay(uint8_t color) {
+    // ...
+}
+
+void WifiBoard::UpdateDisplay() {
+    // ...
+}
+
+void WifiBoard::SetRefreshCode(uint8_t code) {
+    // ...
+}
+
+ 
