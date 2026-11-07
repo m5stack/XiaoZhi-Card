@@ -330,7 +330,6 @@ void XiaozhiCardBoard::InitializeDisplay()
         PostEvent(BoardEvent::Shutdown);
     }; 
     // 返回 主页面 
-
 }
 
 void XiaozhiCardBoard::InitializeButtons()
@@ -837,7 +836,7 @@ XiaozhiCardBoard::XiaozhiCardBoard() : DualNetworkBoard(ML307R_PIN_TX, ML307R_PI
     InitializeCharger();
     InitializeGuage();
     InitializeSpi();
-    // InitializeStorage(); // 
+    // InitializeStorage();
     InitializeDisplay();  
     InitializeButtons();
     InitializeIndicator();

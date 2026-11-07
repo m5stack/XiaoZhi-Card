@@ -558,7 +558,7 @@ void Application::Start() {
     /* Start the clock timer to update the status bar */
     esp_timer_start_periodic(clock_timer_handle_, 1000000); // 1秒
 
-    while (lv_scr_act() != display->scr_main_) {
+    while (lv_screen_active() != display->scr_main_) {
         vTaskDelay(pdMS_TO_TICKS(50)); 
     }
 
@@ -621,6 +621,7 @@ void Application::Start() {
             display->SetChatMessage("system", "");
             if (GetDeviceLastState() != kDeviceStateIdle) { // ???
                 SetDeviceState(kDeviceStateIdle);            
+                printf("set idle 2\n");
             }
         });
     });
@@ -783,6 +784,7 @@ void Application::Start() {
                 if (!protocol_->IsAudioChannelOpened()) {
                     SetDeviceState(kDeviceStateConnecting);
                     if (!protocol_->OpenAudioChannel()) {
+                        // printf("1 start\n");
                         wake_word_->StartDetection();
                         return;
                     }
@@ -1129,6 +1131,7 @@ void Application::SetDeviceState(DeviceState state) {
                 FullRefresh();
                 total_listen_time = 0;  // 重置累计时间
             }
+            // printf("2 start\n");
             wake_word_->StartDetection();
             break;
         case kDeviceStateConnecting:
@@ -1191,7 +1194,13 @@ void Application::SetDeviceState(DeviceState state) {
                 wake_word_->StopDetection();
 #endif
             }
-            ResetDecoder();
+
+            Schedule([] {
+                auto& app = Application::GetInstance();
+                app.ResetDecoder();
+            });
+            // ResetDecoder();
+
             break;
         case kDeviceStateSetting: 
             ResetDecoder();
@@ -1207,6 +1216,8 @@ void Application::SetDeviceState(DeviceState state) {
             // Do nothing
             break;
     }
+
+    // printf("state --> %s\n", STATE_STRINGS[GetDeviceLastState()]);
 }
 
 void Application::ResetDecoder() {
@@ -1349,6 +1360,7 @@ void Application::EnterSleepMode(uint8_t mode) {
     ESP_LOGI(TAG, "app: EnterSleepMode");
 
     if (device_state_  != kDeviceStateIdle) {
+        printf("device_state_  != kDeviceStateIdle\n");
         wake_word_->StopDetection();
         xTaskCreate(sleep_task, "sleep_task", 4096, nullptr, 3, nullptr);
     } else {

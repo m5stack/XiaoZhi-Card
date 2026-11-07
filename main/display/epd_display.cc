@@ -1280,7 +1280,6 @@ void EpdDisplay::SetupUI() {
         if (upgrade_queue) xQueueSend(upgrade_queue, &upgrade, 1);
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_style(main_btn_confirm_upgrade_, &style_btn, 0);
-    
     lv_obj_add_flag(main_btn_confirm_upgrade_, LV_OBJ_FLAG_HIDDEN);
     label = lv_label_create(main_btn_confirm_upgrade_);
     lv_obj_set_style_text_font(label, fonts_.text_font, 0);

@@ -65,8 +65,8 @@ public:
     Application& operator=(const Application&) = delete;
 
     void Start();
-    DeviceState GetDeviceState()   { return device_state_; }
-    DeviceState GetDeviceLastState()   { return device_last_state_; }
+    DeviceState GetDeviceState()  const { return device_state_; }
+    DeviceState GetDeviceLastState() const { return device_last_state_; }
     bool IsVoiceDetected() const { return voice_detected_; }
     void Schedule(std::function<void()> callback);
     void SetDeviceState(DeviceState state);
